@@ -88,10 +88,14 @@ float pil_pf, pil_pc; /* posicio de la pilota, en valor real */
 float pil_vf, pil_vc; /* velocitat de la pilota, en valor real*/
 float pil_ret;        /* percentatge de retard de la pilota */
 
-int retard;    /* valor del retard de moviment, en mil.lisegons */
-int moviments; /* numero max de moviments paletes per acabar el joc */
+int retard;                    /* valor del retard de moviment, en mil.lisegons */
+int moviments, moviments_glob; /* numero max de moviments paletes per acabar el joc */
 pthread_t tid[MAX_THREADS];
 int tec = -1, cont = -1, n_po;
+
+pthread_mutex_t mutex_screen = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_mov = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_paleta = PTHREAD_MUTEX_INITIALIZER;
 
 /* funcio per realitzar la carrega dels parametres de joc emmagatzemats */
 /* dins un fitxer de text, el nom del qual es passa per referencia en   */
@@ -251,11 +255,14 @@ void *moure_pilota(void *cap)
     cont = -1; /* inicialment suposem que la pilota no surt */
     rh = rv = rd = pd = ' ';
     if ((f_h != ipil_pf) || (c_h != ipil_pc))
-    {                     /* si posicio hipotetica no coincideix amb la pos. actual */
+    {
+      /* si posicio hipotetica no coincideix amb la pos. actual */
       if (f_h != ipil_pf) /* provar rebot vertical */
       {
+        pthread_mutex_lock(&mutex_screen);
         rv = win_quincar(f_h, ipil_pc); /* veure si hi ha algun obstacle */
-        if (rv != ' ')                  /* si no hi ha res */
+        pthread_mutex_unlock(&mutex_screen);
+        if (rv != ' ') /* si no hi ha res */
         {
           pil_vf = -pil_vf;      /* canvia velocitat vertical */
           f_h = pil_pf + pil_vf; /* actualitza posicio hipotetica */
@@ -263,8 +270,10 @@ void *moure_pilota(void *cap)
       }
       if (c_h != ipil_pc) /* provar rebot horitzontal */
       {
+        pthread_mutex_lock(&mutex_screen);
         rh = win_quincar(ipil_pf, c_h); /* veure si hi ha algun obstacle */
-        if (rh != ' ')                  /* si no hi ha res */
+        pthread_mutex_unlock(&mutex_screen);
+        if (rh != ' ') /* si no hi ha res */
         {
           pil_vc = -pil_vc;      /* canvia velocitat horitzontal */
           c_h = pil_pc + pil_vc; /* actualitza posicio hipotetica */
@@ -272,7 +281,9 @@ void *moure_pilota(void *cap)
       }
       if ((f_h != ipil_pf) && (c_h != ipil_pc)) /* provar rebot diagonal */
       {
+        pthread_mutex_lock(&mutex_screen);
         rd = win_quincar(f_h, c_h);
+        pthread_mutex_unlock(&mutex_screen);
         if (rd != ' ') /* si no hi ha obstacle */
         {
           pil_vf = -pil_vf;
@@ -281,17 +292,34 @@ void *moure_pilota(void *cap)
           c_h = pil_pc + pil_vc; /* actualitza posicio entera */
         }
       }
+
+      pthread_mutex_lock(&mutex_screen);
       if (win_quincar(f_h, c_h) == ' ')              /* verificar posicio definitiva */
       {                                              /* si no hi ha obstacle */
         win_escricar(ipil_pf, ipil_pc, ' ', NO_INV); /* esborra pilota */
+        pthread_mutex_unlock(&mutex_screen);
+
+
         pil_pf += pil_vf;
         pil_pc += pil_vc;
         ipil_pf = f_h;
-        ipil_pc = c_h;                                 /* actualitza posicio actual */
-        if ((ipil_pc > 0) && (ipil_pc <= n_col))       /* si no surt */
+        ipil_pc = c_h; /* actualitza posicio actual */
+
+        if ((ipil_pc > 0) && (ipil_pc <= n_col))
+        {    
+          pthread_mutex_lock(&mutex_screen);
           win_escricar(ipil_pf, ipil_pc, '.', INVERS); /* imprimeix pilota */
+          pthread_mutex_unlock(&mutex_screen);
+
+        } /* si no surt */
         else
+        {
           cont = ipil_pc; /* codi de finalitzacio de partida */
+        }
+      }
+      else
+      {
+        pthread_mutex_unlock(&mutex_screen);
       }
     }
     else
@@ -311,26 +339,49 @@ void *mou_paleta_usuari(void *cap)
   do
   {
     tec = win_gettec();
-    if (tec != 0)
-    {
+
+    if(tec != 0) {
+      pthread_mutex_lock(&mutex_screen);
       if ((tec == TEC_AVALL) && (win_quincar(ipu_pf + l_pal, ipu_pc) == ' '))
       {
-        win_escricar(ipu_pf, ipu_pc, ' ', NO_INV);             /* esborra primer bloc */
-        ipu_pf++;                                              /* actualitza posicio */
+
+        win_escricar(ipu_pf, ipu_pc, ' ', NO_INV); /* esborra primer bloc */
+
+        ipu_pf++; /* actualitza posicio */
+
         win_escricar(ipu_pf + l_pal - 1, ipu_pc, '0', INVERS); /* impri. ultim bloc */
-        if (moviments > 0)
-          moviments--; /* he fet un moviment de la paleta */
+
+      /*  if (moviments > 0)
+        {
+          // pthread_mutex_lock(&mutex_mov);
+          moviments--; // he fet un moviment de la paleta 
+          // pthread_mutex_unlock(&mutex_mov);
+        } */
+
       }
+
       if ((tec == TEC_AMUNT) && (win_quincar(ipu_pf - 1, ipu_pc) == ' '))
       {
         win_escricar(ipu_pf + l_pal - 1, ipu_pc, ' ', NO_INV); /* esborra ultim bloc */
-        ipu_pf--;                                              /* actualitza posicio */
-        win_escricar(ipu_pf, ipu_pc, '0', INVERS);             /* imprimeix primer bloc */
-        if (moviments > 0)
-          moviments--; /* he fet un moviment de la paleta */
+
+        ipu_pf--;
+
+        win_escricar(ipu_pf, ipu_pc, '0', INVERS); /* imprimeix primer bloc */
+
+       /*  if (moviments > 0)
+        {
+          // pthread_mutex_lock(&mutex_mov);
+          moviments--; // he fet un moviment de la paleta 
+          // pthread_mutex_unlock(&mutex_mov);
+        } */
       }
+      pthread_mutex_unlock(&mutex_screen);
+
+
       if (tec == TEC_ESPAI)
+      {
         win_escristr("ARA HAURIA D'ATURAR ELS ELEMENTS DEL JOC");
+      }
     }
   } while ((tec != TEC_RETURN) && cont == -1 && ((moviments > 0) || moviments == -1));
 
@@ -350,39 +401,70 @@ void *mou_paleta_ordinador(void *index)
   {
     win_retard(retard);
     f_h = po_pf[i] + v_pal[i]; /* posicio hipotetica de la paleta */
+    
+    pthread_mutex_lock(&mutex_paleta);
     if (f_h != ipo_pf[i])      /* si pos. hipotetica no coincideix amb pos. actual */
     {
       if (v_pal[i] > 0.0) /* verificar moviment cap avall */
       {
+        pthread_mutex_lock(&mutex_screen);
         if (win_quincar(f_h + l_pal - 1, ipo_pc[i]) == ' ') /* si no hi ha obstacle */
         {
           win_escricar(ipo_pf[i], ipo_pc[i], ' ', NO_INV); /* esborra primer bloc */
+
           po_pf[i] += v_pal[i];
-          ipo_pf[i] = po_pf[i];                                        /* actualitza posicio */
+          ipo_pf[i] = po_pf[i];
+
           win_escricar(ipo_pf[i] + l_pal - 1, ipo_pc[i], '1', INVERS); /* impr. ultim bloc */
+          pthread_mutex_unlock(&mutex_screen);
+
           if (moviments > 0)
+          {
+            pthread_mutex_lock(&mutex_mov);
             moviments--; /* he fet un moviment de la paleta */
+            pthread_mutex_unlock(&mutex_mov);
+          }
         }
-        else /* si hi ha obstacle, canvia el sentit del moviment */
-          v_pal[i] = -v_pal[i];
+        else
+        {
+          pthread_mutex_unlock(&mutex_screen);
+          v_pal[i] = -v_pal[i]; /* si hi ha obstacle, canvia el sentit del moviment */
+        }
       }
       else /* verificar moviment cap amunt */
       {
+        pthread_mutex_lock(&mutex_screen);
         if (win_quincar(f_h, ipo_pc[i]) == ' ') /* si no hi ha obstacle */
         {
           win_escricar(ipo_pf[i] + l_pal - 1, ipo_pc[i], ' ', NO_INV); /* esbo. ultim bloc */
+
           po_pf[i] += v_pal[i];
-          ipo_pf[i] = po_pf[i];                            /* actualitza posicio */
+          ipo_pf[i] = po_pf[i]; /* actualitza posicio */
+
           win_escricar(ipo_pf[i], ipo_pc[i], '1', INVERS); /* impr. primer bloc */
+          pthread_mutex_unlock(&mutex_screen);
+
           if (moviments > 0)
+          {
+            pthread_mutex_lock(&mutex_mov);
             moviments--; /* he fet un moviment de la paleta */
+            pthread_mutex_unlock(&mutex_mov);
+          }
         }
-        else /* si hi ha obstacle, canvia el sentit del moviment */
-          v_pal[i] = -v_pal[i];
+        else
+        {
+          pthread_mutex_unlock(&mutex_screen);
+
+          v_pal[i] = -v_pal[i]; /* si hi ha obstacle, canvia el sentit del moviment */
+        }
       }
     }
     else
+    {
       po_pf[i] += v_pal[i]; /* actualitza posicio vertical real de la paleta */
+    }
+    pthread_mutex_unlock(&mutex_paleta);
+
   } while ((tec != TEC_RETURN) && cont == -1 && ((moviments > 0) || moviments == -1));
 
   return ((void *)(intptr_t)0);
@@ -409,26 +491,33 @@ int main(int n_args, const char *ll_args[])
   if (inicialitza_joc() != 0) /* intenta crear el taulell de joc */
     exit(4);                  /* aborta si hi ha algun problema amb taulell */
 
+  pthread_mutex_init(&mutex_screen, NULL);
+  pthread_mutex_init(&mutex_mov, NULL);
+  pthread_mutex_init(&mutex_paleta, NULL);
+
   if (pthread_create(&tid[n_thr], NULL, moure_pilota, NULL) == 0)
     n_thr++;
 
   if (pthread_create(&tid[n_thr], NULL, mou_paleta_usuari, NULL) == 0)
     n_thr++;
+  
+ /*int num = 1;
+      if (pthread_create(&tid[n_thr], NULL, mou_paleta_ordinador, &num) == 0)
+        n_thr++;*/
+    /*for (int i = 0; i < 1; i++)
+    {
+      int num = i;
+      if (pthread_create(&tid[n_thr], NULL, mou_paleta_ordinador, &num) == 0)
+        n_thr++;
+    }*/
 
-  for (int i = 0; i < n_po; i++)
-  {
-    int num = i;
-    if (pthread_create(&tid[n_thr], NULL, mou_paleta_ordinador, &num) == 0)
-      n_thr++;
-  }
-
-
-  char time[6];
-  char minutes = 0, seconds = 0;
+  char time[6], minutes = 0, seconds = 0;
   do {
     sprintf(time, "%02u:%02u", minutes, seconds);
-    
+
+    pthread_mutex_lock(&mutex_screen);
     win_escristr(time);
+    pthread_mutex_unlock(&mutex_screen);
 
     win_retard(950);
     seconds++;
@@ -443,6 +532,10 @@ int main(int n_args, const char *ll_args[])
   {
     pthread_join(tid[i], NULL);
   }
+
+  pthread_mutex_destroy(&mutex_screen);
+  pthread_mutex_destroy(&mutex_mov);
+  pthread_mutex_destroy(&mutex_paleta);
 
   win_fi();
 

@@ -12,5 +12,8 @@ tennis1 : tennis1.c winsuport.o winsuport.h
 tennis2 : tennis2.c winsuport.o winsuport.h
 	gcc tennis2.c winsuport.o -o tennis2 -lcurses -lpthread
 
+debug_tennis2 : tennis2.c winsuport.o winsuport.h
+	gcc tennis2.c winsuport.o -o tennis2 -lcurses -lpthread -gdwarf-4 -g3 
+
 clean: 
 	rm winsuport.o tennis0 tennis1 tennis2
