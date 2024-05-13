@@ -1,6 +1,8 @@
 {
     "files.associations": {
         "chrono": "c",
-        "variant": "c"
+        "variant": "c",
+        "cstdint": "c",
+        "stdbool.h": "c"
     }
 }
