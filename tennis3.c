@@ -89,15 +89,35 @@ float pil_vf, pil_vc; /* velocitat de la pilota, en valor real*/
 float pil_ret;        /* percentatge de retard de la pilota */
 
 int retard;                    /* valor del retard de moviment, en mil.lisegons */
-int moviments, moviments_glob; /* numero max de moviments paletes per acabar el joc */
+
 pthread_t tid[MAX_THREADS];
 int tec = -1, cont = -1, n_po;
 int space_press = 0;
 
+int id_ipo_pf;
+int *p_ipo_pf; 
+int id_ipo_pc;
+int *p_ipo_pc;
+int id_v_pal;
+int *p_v_pal;
+int id_pal_ret;
+int *p_pal_ret;
+
+int id_moviments;
+int *p_moviments;
+
+int id_continuar;
+int *p_continuar;
+
+
+char array1[20], array2[20], array3[20], array4[20];
+
+pid_t tpid[MAX_THR_ORD];
+
 pthread_mutex_t mutex_screen = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_space = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_mov = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mutex_cont = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_conti = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_tec = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_glob = PTHREAD_MUTEX_INITIALIZER;
 
@@ -109,6 +129,7 @@ pthread_mutex_t mutex_glob = PTHREAD_MUTEX_INITIALIZER;
 void carrega_parametres(const char *nom_fit)
 {
   FILE *fit;
+  
 
   fit = fopen(nom_fit, "rt"); /* intenta obrir fitxer */
   if (fit == NULL)
@@ -150,10 +171,32 @@ void carrega_parametres(const char *nom_fit)
     exit(4);
   }
 
+  id_ipo_pf = ini_mem(sizeof(int) * MAX_THR_ORD);
+  p_ipo_pf = map_mem(id_ipo_pf);      // p_ipo_pf = lloc de memoria compartida on esta guardat l'array ipo_pf[]
+  sprintf(array1, "%d", id_ipo_pf);
+
+  id_ipo_pc = ini_mem(sizeof(int) * MAX_THR_ORD);
+  p_ipo_pc = map_mem(id_ipo_pc);      // p_ipo_pc = lloc de memoria compartida on esta guardat l'array ipo_pc[]
+  sprintf(array2, "%d", id_ipo_pc);
+
+  id_v_pal = ini_mem(sizeof(float) * MAX_THR_ORD);
+  p_v_pal = map_mem(id_v_pal);      // p_v_pal = lloc de memoria compartida on esta guardat l'array v_pal[]
+  sprintf(array3, "%d", id_v_pal);
+
+  id_pal_ret = ini_mem(sizeof(float) * MAX_THR_ORD);
+  p_pal_ret = map_mem(id_pal_ret);     // p_pal_ret = lloc de memoria compartida on esta guardat l'array pal_ret[]
+  sprintf(array4, "%d", id_pal_ret);
+
   n_po = 0;
   while (!feof(fit) && n_po < MAX_THR_ORD)
   {
     fscanf(fit, "%d %d %f %f\n", &ipo_pf[n_po], &ipo_pc[n_po], &v_pal[n_po], &pal_ret[n_po]);
+
+    
+    *(p_ipo_pf + n_po) = ipo_pf[n_po];
+    *(p_ipo_pc + n_po) = ipo_pc[n_po];
+    *(p_v_pal + n_po) = v_pal[n_po];
+    *(p_pal_ret + n_po) = pal_ret[n_po];
 
     if ((ipo_pf[n_po] < 1) || (ipo_pf[n_po] + l_pal > n_fil - 2) ||
         (ipo_pc[n_po] < 5) || (ipo_pc[n_po] > n_col - 2) ||
@@ -319,9 +362,9 @@ void *moure_pilota(void *cap)
         } /* si no surt */
         else
         {
-          pthread_mutex_lock(&mutex_cont);
+          pthread_mutex_lock(&mutex_conti);
           cont = ipil_pc; /* codi de finalitzacio de partida */
-          pthread_mutex_unlock(&mutex_cont);
+          pthread_mutex_unlock(&mutex_conti);
         }
       }
       else
@@ -337,7 +380,7 @@ void *moure_pilota(void *cap)
 
     if(tec == TEC_ESPAI && !space_press)
       pthread_mutex_unlock(&mutex_glob);
-  } while ((tec != TEC_RETURN) && (cont == -1) && ((moviments > 0) || moviments == -1));
+  } while ((tec != TEC_RETURN) && (cont == -1) && ((*p_moviments > 0) || *p_moviments == -1));
 
   return ((void *)(intptr_t)0);
 }
@@ -366,10 +409,10 @@ void *mou_paleta_usuari(void *cap)
         win_escricar(ipu_pf + l_pal - 1, ipu_pc, '0', INVERS); /* impri. ultim bloc */
         pthread_mutex_unlock(&mutex_screen);
 
-        if (moviments > 0)
+        if (*p_moviments > 0)
         {
           pthread_mutex_lock(&mutex_mov);
-          moviments--; // he fet un moviment de la paleta
+          *p_moviments--; // he fet un moviment de la paleta
           pthread_mutex_unlock(&mutex_mov);
         }
       }
@@ -390,10 +433,10 @@ void *mou_paleta_usuari(void *cap)
         win_escricar(ipu_pf, ipu_pc, '0', INVERS); /* imprimeix primer bloc */
         pthread_mutex_unlock(&mutex_screen);
 
-        if (moviments > 0)
+        if (*p_moviments > 0)
         {
           pthread_mutex_lock(&mutex_mov);
-          moviments--; // he fet un moviment de la paleta
+          *p_moviments--; // he fet un moviment de la paleta
           pthread_mutex_unlock(&mutex_mov);
         }
       }
@@ -405,101 +448,11 @@ void *mou_paleta_usuari(void *cap)
 
     if(tec == TEC_ESPAI && !space_press)
       pthread_mutex_unlock(&mutex_glob);
-  } while ((tec != TEC_RETURN) && cont == -1 && ((moviments > 0) || moviments == -1));
+  } while ((tec != TEC_RETURN) && cont == -1 && ((*p_moviments > 0) || *p_moviments == -1));
 
   return ((void *)(intptr_t)0);
 }
 
-/* funcio per moure la paleta de l'ordinador autonomament, en funcio de la */
-/* velocitat de la paleta (variable global v_pal) */
-void *mou_paleta_ordinador(void *index)
-{
-  int f_h;
-  /* char rh,rv,rd; */
-
-  int i = (intptr_t)index;
-
-  do
-  {
-    win_retard(retard);
-
-    if (space_press)
-      pthread_mutex_lock(&mutex_glob);
-
-    f_h = po_pf[i] + v_pal[i]; /* posicio hipotetica de la paleta */
-
-    if (f_h != ipo_pf[i]) /* si pos. hipotetica no coincideix amb pos. actual */
-    {
-      pthread_mutex_lock(&mutex_screen);
-      if (v_pal[i] > 0.0) /* verificar moviment cap avall */
-      {
-        if (win_quincar(f_h + l_pal - 1, ipo_pc[i]) == ' ') /* si no hi ha obstacle */
-        {
-          win_escricar(ipo_pf[i], ipo_pc[i], ' ', NO_INV); /* esborra primer bloc */
-          pthread_mutex_unlock(&mutex_screen);
-
-          po_pf[i] += v_pal[i];
-          ipo_pf[i] = po_pf[i];
-
-          pthread_mutex_lock(&mutex_screen);
-          win_escricar(ipo_pf[i] + l_pal - 1, ipo_pc[i], '1', INVERS); /* impr. ultim bloc */
-          pthread_mutex_unlock(&mutex_screen);
-
-          if (moviments > 0)
-          {
-            pthread_mutex_lock(&mutex_mov);
-            moviments--; /* he fet un moviment de la paleta */
-            pthread_mutex_unlock(&mutex_mov);
-          }
-        }
-        else
-        {
-          pthread_mutex_unlock(&mutex_screen);
-
-          v_pal[i] = -v_pal[i]; /* si hi ha obstacle, canvia el sentit del moviment */
-        }
-      }
-      else /* verificar moviment cap amunt */
-      {
-        if (win_quincar(f_h, ipo_pc[i]) == ' ') /* si no hi ha obstacle */
-        {
-          win_escricar(ipo_pf[i] + l_pal - 1, ipo_pc[i], ' ', NO_INV); /* esbo. ultim bloc */
-          pthread_mutex_unlock(&mutex_screen);
-
-          po_pf[i] += v_pal[i];
-          ipo_pf[i] = po_pf[i]; /* actualitza posicio */
-
-          pthread_mutex_lock(&mutex_screen);
-          win_escricar(ipo_pf[i], ipo_pc[i], '1', INVERS); /* impr. primer bloc */
-          pthread_mutex_unlock(&mutex_screen);
-
-          if (moviments > 0)
-          {
-            pthread_mutex_lock(&mutex_mov);
-            moviments--; /* he fet un moviment de la paleta */
-            pthread_mutex_unlock(&mutex_mov);
-          }
-        }
-        else
-        {
-          pthread_mutex_unlock(&mutex_screen);
-
-          v_pal[i] = -v_pal[i]; /* si hi ha obstacle, canvia el sentit del moviment */
-        }
-      }
-    }
-    else
-    {
-      po_pf[i] += v_pal[i]; /* actualitza posicio vertical real de la paleta */
-    }
-
-    if(tec == TEC_ESPAI && !space_press)
-      pthread_mutex_unlock(&mutex_glob);
-
-  } while ((tec != TEC_RETURN) && cont == -1 && ((moviments > 0) || moviments == -1));
-
-  return ((void *)(intptr_t)0);
-}
 
 void *read_key(void *arg)
 {
@@ -521,7 +474,7 @@ void *read_key(void *arg)
         pthread_mutex_unlock(&mutex_glob);
       }
     }
-  } while((tec != TEC_RETURN) && cont == -1 && ((moviments > 0) || moviments == -1));
+  } while((tec != TEC_RETURN) && cont == -1 && ((*p_moviments > 0) || *p_moviments == -1));
 
   return ((void *)(intptr_t)0);
 }
@@ -529,7 +482,8 @@ void *read_key(void *arg)
 /* programa principal				    */
 int main(int n_args, const char *ll_args[])
 {
-  int n_thr = 0;
+  int n_thr = 0, n = 0;
+  char retard_string[20], moviment_id_string[20], continuar_id_string[20], tec_id_string[20];
 
   if ((n_args != 3) && (n_args != 4))
   {
@@ -537,10 +491,19 @@ int main(int n_args, const char *ll_args[])
     exit(1);
   }
   carrega_parametres(ll_args[1]);
-  moviments = atoi(ll_args[2]);
 
-  if (moviments == 0)
-    moviments = -1;
+  id_moviments = ini_mem(sizeof(int));
+  p_moviments = map_mem(id_moviments);
+  *p_moviments = atoi(ll_args[2]);
+  sprintf(moviment_id_string, "%d", id_moviments);
+
+  id_continuar = ini_mem(sizeof(int));
+  p_continuar = map_mem(id_continuar);
+  *p_continuar = -1;
+  sprintf(continuar_id_string, "%d", id_continuar);
+
+  if (*p_moviments == 0)
+    *p_moviments = -1;
 
   if (n_args == 4)
     retard = atoi(ll_args[3]);
@@ -554,8 +517,8 @@ int main(int n_args, const char *ll_args[])
   pthread_mutex_init(&mutex_space, NULL);
   pthread_mutex_init(&mutex_mov, NULL);
   pthread_mutex_init(&mutex_tec, NULL);
-  pthread_mutex_init(&mutex_cont, NULL);
-  pthread_mutex_init(&mutex_glob, NULL);
+  pthread_mutex_init(&mutex_conti, NULL);
+  //pthread_mutex_init(&mutex_glob, NULL);
 
   if (pthread_create(&tid[n_thr], NULL, read_key, NULL) == 0)
     n_thr++;
@@ -566,11 +529,25 @@ int main(int n_args, const char *ll_args[])
   if (pthread_create(&tid[n_thr], NULL, mou_paleta_usuari, NULL) == 0)
     n_thr++;
 
+  sprintf(retard_string, "%d", retard);
+
+  
+
+
+
+
+
   for (int i = 0; i < n_po; i++)
   {
-    if (pthread_create(&tid[n_thr], NULL, mou_paleta_ordinador, (void *)(intptr_t)i) == 0)
-      n_thr++;
+    tpid[n] = fork();         // Guardem la id dels processos creats a l'array tpid[]
+
+    if (tpid[n] == (pid_t) 0){
+      execlp("./pal_ord3", "pal_ord3", array1, array2, array3, array4, retard_string, moviment_id_string);
+    }
   }
+  
+  
+
 
   char time[6], minutes = 0, seconds = 0;
   do
@@ -590,7 +567,7 @@ int main(int n_args, const char *ll_args[])
       seconds = 0;
       minutes++;
     }
-  } while ((tec != TEC_RETURN) && cont == -1 && ((moviments > 0) || moviments == -1));
+  } while ((tec != TEC_RETURN) && cont == -1 && ((*p_moviments > 0) || *p_moviments == -1));
 
   for (int i = 0; i < n_thr; i++)
   {
@@ -601,8 +578,8 @@ int main(int n_args, const char *ll_args[])
   pthread_mutex_destroy(&mutex_space);
   pthread_mutex_destroy(&mutex_mov);
   pthread_mutex_destroy(&mutex_tec);
-  pthread_mutex_destroy(&mutex_cont);
-  pthread_mutex_destroy(&mutex_glob);
+  pthread_mutex_destroy(&mutex_conti);
+  //pthread_mutex_destroy(&mutex_glob);
 
   win_fi();
 
@@ -610,7 +587,7 @@ int main(int n_args, const char *ll_args[])
     printf("S'ha aturat el joc amb la tecla RETURN!\n");
   else
   {
-    if (cont == 0 || moviments == 0)
+    if (cont == 0 || *p_moviments == 0)
       printf("Ha guanyat l'ordinador!\n");
     else
       printf("Ha guanyat l'usuari!\n");
