@@ -54,12 +54,16 @@
 /*	6  ==>  no s'ha pogut crear el camp de joc (no pot iniciar CURSES)   */
 /*****************************************************************************/
 
+#include "winsuport2.h" /* incloure definicions de funcions propies */
+#include <pthread.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h> /* incloure definicions de funcions estandard */
 #include <stdlib.h>
-#include "winsuport.h" /* incloure definicions de funcions propies */
-#include <pthread.h>
-#include <stdint.h>
-#include <stdbool.h>
+#include <unistd.h>
+#include "memoria.h"
+#include <sys/wait.h>
+#include <signal.h>
 
 #define MIN_FIL 7 /* definir limits de variables globals */
 #define MAX_FIL 25
@@ -70,54 +74,40 @@
 #define MAX_VEL 1.0
 #define MIN_RET 0.0
 #define MAX_RET 5.0
-#define MAX_THR_ORD 9
-#define MAX_THREADS MAX_THR_ORD + 3
+#define MAX_PAL_ORD 9
+#define MAX_THREADS 3
 
 /* variables globals */
 int n_fil, n_col, m_por;    /* dimensions del taulell i porteries */
 int l_pal;                  /* longitud de les paletes */
-float v_pal[MAX_THR_ORD];   /* velocitat de la paleta del programa */
-float pal_ret[MAX_THR_ORD]; /* percentatge de retard de la paleta */
+float v_pal[MAX_PAL_ORD];   /* velocitat de la paleta del programa */
+float pal_ret[MAX_PAL_ORD]; /* percentatge de retard de la paleta */
 
-int ipu_pf, ipu_pc;                           /* posicio del la paleta d'usuari */
-int ipo_pf[MAX_THR_ORD], ipo_pc[MAX_THR_ORD]; /* posicio del la paleta de l'ordinador */
-float po_pf[MAX_THR_ORD];                     /* pos. vertical de la paleta de l'ordinador, en valor real */
+int ipu_pf, ipu_pc; /* posicio del la paleta d'usuari */
+int ipo_pf[MAX_PAL_ORD],
+    ipo_pc[MAX_PAL_ORD];  /* posicio del la paleta de l'ordinador */
+float po_pf[MAX_PAL_ORD]; /* pos. vertical de la paleta de l'ordinador, en valor
+                             real */
+int n_po;
 
 int ipil_pf, ipil_pc; /* posicio de la pilota, en valor enter */
 float pil_pf, pil_pc; /* posicio de la pilota, en valor real */
 float pil_vf, pil_vc; /* velocitat de la pilota, en valor real*/
 float pil_ret;        /* percentatge de retard de la pilota */
 
-int retard;                    /* valor del retard de moviment, en mil.lisegons */
+int retard; /* valor del retard de moviment, en mil.lisegons */
 
 pthread_t tid[MAX_THREADS];
-int tec = -1, cont = -1, n_po;
-int space_press = 0;
+pid_t tpid[MAX_PAL_ORD];
 
-int id_ipo_pf;
-int *p_ipo_pf; 
-int id_ipo_pc;
-int *p_ipo_pc;
-int id_v_pal;
-int *p_v_pal;
-int id_pal_ret;
-int *p_pal_ret;
-
-int id_moviments;
-int *p_moviments;
-
-int id_continuar;
-int *p_continuar;
-
-
-char array1[20], array2[20], array3[20], array4[20];
-
-pid_t tpid[MAX_THR_ORD];
+int id_moviments, id_continuar, id_tec, id_space_press, id_win;
+int *p_moviments, *p_continuar, *p_tec, *p_space_press;
+void *p_win;
 
 pthread_mutex_t mutex_screen = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_space = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_mov = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mutex_conti = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_con = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_tec = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_glob = PTHREAD_MUTEX_INITIALIZER;
 
@@ -126,88 +116,70 @@ pthread_mutex_t mutex_glob = PTHREAD_MUTEX_INITIALIZER;
 /* 'nom_fit'; si es detecta algun problema, la funcio avorta l'execucio */
 /* enviant un missatge per la sortida d'error i retornant el codi per-	*/
 /* tinent al SO (segons comentaris del principi del programa).		*/
-void carrega_parametres(const char *nom_fit)
-{
+void carrega_parametres(const char *nom_fit) {
   FILE *fit;
-  
 
   fit = fopen(nom_fit, "rt"); /* intenta obrir fitxer */
-  if (fit == NULL)
-  {
+  if (fit == NULL) {
     fprintf(stderr, "No s'ha pogut obrir el fitxer \'%s\'\n", nom_fit);
     exit(2);
   }
 
   if (!feof(fit))
     fscanf(fit, "%d %d %d %d\n", &n_fil, &n_col, &m_por, &l_pal);
-  if ((n_fil < MIN_FIL) || (n_fil > MAX_FIL) ||
-      (n_col < MIN_COL) || (n_col > MAX_COL) || (m_por < 0) ||
-      (m_por > n_fil - 3) || (l_pal < MIN_PAL) || (l_pal > n_fil - 3))
-  {
+  if ((n_fil < MIN_FIL) || (n_fil > MAX_FIL) || (n_col < MIN_COL) ||
+      (n_col > MAX_COL) || (m_por < 0) || (m_por > n_fil - 3) ||
+      (l_pal < MIN_PAL) || (l_pal > n_fil - 3)) {
     fprintf(stderr, "Error: dimensions del camp de joc incorrectes:\n");
     fprintf(stderr, "\t%d =< n_fil (%d) =< %d\n", MIN_FIL, n_fil, MAX_FIL);
     fprintf(stderr, "\t%d =< n_col (%d) =< %d\n", MIN_COL, n_col, MAX_COL);
     fprintf(stderr, "\t0 =< m_por (%d) =< n_fil-3 (%d)\n", m_por, (n_fil - 3));
-    fprintf(stderr, "\t%d =< l_pal (%d) =< n_fil-3 (%d)\n", MIN_PAL, l_pal, (n_fil - 3));
+    fprintf(stderr, "\t%d =< l_pal (%d) =< n_fil-3 (%d)\n", MIN_PAL, l_pal,
+            (n_fil - 3));
     fclose(fit);
     exit(3);
   }
 
   if (!feof(fit))
-    fscanf(fit, "%d %d %f %f %f\n", &ipil_pf, &ipil_pc, &pil_vf, &pil_vc, &pil_ret);
-  if ((ipil_pf < 1) || (ipil_pf > n_fil - 3) ||
-      (ipil_pc < 1) || (ipil_pc > n_col - 2) ||
-      (pil_vf < MIN_VEL) || (pil_vf > MAX_VEL) ||
-      (pil_vc < MIN_VEL) || (pil_vc > MAX_VEL) ||
-      (pil_ret < MIN_RET) || (pil_ret > MAX_RET))
-  {
+    fscanf(fit, "%d %d %f %f %f\n", &ipil_pf, &ipil_pc, &pil_vf, &pil_vc,
+           &pil_ret);
+  if ((ipil_pf < 1) || (ipil_pf > n_fil - 3) || (ipil_pc < 1) ||
+      (ipil_pc > n_col - 2) || (pil_vf < MIN_VEL) || (pil_vf > MAX_VEL) ||
+      (pil_vc < MIN_VEL) || (pil_vc > MAX_VEL) || (pil_ret < MIN_RET) ||
+      (pil_ret > MAX_RET)) {
     fprintf(stderr, "Error: parametre pilota incorrectes:\n");
-    fprintf(stderr, "\t1 =< ipil_pf (%d) =< n_fil-3 (%d)\n", ipil_pf, (n_fil - 3));
-    fprintf(stderr, "\t1 =< ipil_pc (%d) =< n_col-2 (%d)\n", ipil_pc, (n_col - 2));
-    fprintf(stderr, "\t%.1f =< pil_vf (%.1f) =< %.1f\n", MIN_VEL, pil_vf, MAX_VEL);
-    fprintf(stderr, "\t%.1f =< pil_vc (%.1f) =< %.1f\n", MIN_VEL, pil_vc, MAX_VEL);
-    fprintf(stderr, "\t%.1f =< pil_ret (%.1f) =< %.1f\n", MIN_RET, pil_ret, MAX_RET);
+    fprintf(stderr, "\t1 =< ipil_pf (%d) =< n_fil-3 (%d)\n", ipil_pf,
+            (n_fil - 3));
+    fprintf(stderr, "\t1 =< ipil_pc (%d) =< n_col-2 (%d)\n", ipil_pc,
+            (n_col - 2));
+    fprintf(stderr, "\t%.1f =< pil_vf (%.1f) =< %.1f\n", MIN_VEL, pil_vf,
+            MAX_VEL);
+    fprintf(stderr, "\t%.1f =< pil_vc (%.1f) =< %.1f\n", MIN_VEL, pil_vc,
+            MAX_VEL);
+    fprintf(stderr, "\t%.1f =< pil_ret (%.1f) =< %.1f\n", MIN_RET, pil_ret,
+            MAX_RET);
     fclose(fit);
     exit(4);
   }
 
-  id_ipo_pf = ini_mem(sizeof(int) * MAX_THR_ORD);
-  p_ipo_pf = map_mem(id_ipo_pf);      // p_ipo_pf = lloc de memoria compartida on esta guardat l'array ipo_pf[]
-  sprintf(array1, "%d", id_ipo_pf);
-
-  id_ipo_pc = ini_mem(sizeof(int) * MAX_THR_ORD);
-  p_ipo_pc = map_mem(id_ipo_pc);      // p_ipo_pc = lloc de memoria compartida on esta guardat l'array ipo_pc[]
-  sprintf(array2, "%d", id_ipo_pc);
-
-  id_v_pal = ini_mem(sizeof(float) * MAX_THR_ORD);
-  p_v_pal = map_mem(id_v_pal);      // p_v_pal = lloc de memoria compartida on esta guardat l'array v_pal[]
-  sprintf(array3, "%d", id_v_pal);
-
-  id_pal_ret = ini_mem(sizeof(float) * MAX_THR_ORD);
-  p_pal_ret = map_mem(id_pal_ret);     // p_pal_ret = lloc de memoria compartida on esta guardat l'array pal_ret[]
-  sprintf(array4, "%d", id_pal_ret);
-
   n_po = 0;
-  while (!feof(fit) && n_po < MAX_THR_ORD)
-  {
-    fscanf(fit, "%d %d %f %f\n", &ipo_pf[n_po], &ipo_pc[n_po], &v_pal[n_po], &pal_ret[n_po]);
-
-    
-    *(p_ipo_pf + n_po) = ipo_pf[n_po];
-    *(p_ipo_pc + n_po) = ipo_pc[n_po];
-    *(p_v_pal + n_po) = v_pal[n_po];
-    *(p_pal_ret + n_po) = pal_ret[n_po];
+  while (!feof(fit) && n_po < MAX_PAL_ORD) {
+    fscanf(fit, "%d %d %f %f\n", &ipo_pf[n_po], &ipo_pc[n_po], &v_pal[n_po],
+           &pal_ret[n_po]);
 
     if ((ipo_pf[n_po] < 1) || (ipo_pf[n_po] + l_pal > n_fil - 2) ||
         (ipo_pc[n_po] < 5) || (ipo_pc[n_po] > n_col - 2) ||
         (v_pal[n_po] < MIN_VEL) || (v_pal[n_po] > MAX_VEL) ||
-        (pal_ret[n_po] < MIN_RET) || (pal_ret[n_po] > MAX_RET))
-    {
+        (pal_ret[n_po] < MIN_RET) || (pal_ret[n_po] > MAX_RET)) {
       fprintf(stderr, "Error: parametres paleta ordinador incorrectes:\n");
-      fprintf(stderr, "\t1 =< ipo_pf (%d) =< n_fil-l_pal-3 (%d)\n", ipo_pf[n_po], (n_fil - l_pal - 3));
-      fprintf(stderr, "\t5 =< ipo_pc (%d) =< n_col-2 (%d)\n", ipo_pc[n_po], (n_col - 2));
-      fprintf(stderr, "\t%.1f =< v_pal (%.1f) =< %.1f\n", MIN_VEL, v_pal[n_po], MAX_VEL);
-      fprintf(stderr, "\t%.1f =< pal_ret (%.1f) =< %.1f\n", MIN_RET, pal_ret[n_po], MAX_RET);
+      fprintf(stderr, "\t1 =< ipo_pf (%d) =< n_fil-l_pal-3 (%d)\n",
+              ipo_pf[n_po], (n_fil - l_pal - 3));
+      fprintf(stderr, "\t5 =< ipo_pc (%d) =< n_col-2 (%d)\n", ipo_pc[n_po],
+              (n_col - 2));
+      fprintf(stderr, "\t%.1f =< v_pal (%.1f) =< %.1f\n", MIN_VEL, v_pal[n_po],
+              MAX_VEL);
+      fprintf(stderr, "\t%.1f =< pal_ret (%.1f) =< %.1f\n", MIN_RET,
+              pal_ret[n_po], MAX_RET);
       fclose(fit);
       exit(5);
     }
@@ -219,18 +191,19 @@ void carrega_parametres(const char *nom_fit)
 }
 
 /* funcio per inicialitar les variables i visualitzar l'estat inicial del joc */
-int inicialitza_joc(void)
-{
+int inicialitza_joc(void) {
   int i, i_port, f_port, retwin;
   char strin[51];
 
   retwin = win_ini(&n_fil, &n_col, '+', INVERS); /* intenta crear taulell */
+  id_win = ini_mem(retwin);     /* crear zona mem. compartida */
+  p_win = map_mem(id_win);      /* obtenir adres. de mem. compartida */
+  win_set(p_win, n_fil, n_col); /* crea acces a finestra oberta */
 
   if (retwin < 0) /* si no pot crear l'entorn de joc amb les curses */
   {
     fprintf(stderr, "Error en la creacio del taulell de joc:\t");
-    switch (retwin)
-    {
+    switch (retwin) {
     case -1:
       fprintf(stderr, "camp de joc ja creat!\n");
       break;
@@ -253,8 +226,7 @@ int inicialitza_joc(void)
   if (i_port == 0)
     i_port = 1;
   f_port = i_port + m_por - 1;
-  for (i = i_port; i <= f_port; i++)
-  {
+  for (i = i_port; i <= f_port; i++) {
     win_escricar(i, 0, ' ', NO_INV);
     win_escricar(i, n_col - 1, ' ', NO_INV);
   }
@@ -274,7 +246,7 @@ int inicialitza_joc(void)
     po_pf[i] = ipo_pf[i]; /* fixar valor real paleta ordinador */
 
   pil_pf = ipil_pf;
-  pil_pc = ipil_pc;                            /* fixar valor real posicio pilota */
+  pil_pc = ipil_pc; /* fixar valor real posicio pilota */
   win_escricar(ipil_pf, ipil_pc, '.', INVERS); /* dibuix inicial pilota */
 
   sprintf(strin, "Tecles: \'%c\'-> amunt, \'%c\'-> avall, RETURN-> sortir.",
@@ -288,24 +260,21 @@ int inicialitza_joc(void)
 /*	-1 ==> la pilota no ha sortit del taulell			*/
 /*	 0 ==> la pilota ha sortit per la porteria esquerra		*/
 /*	>0 ==> la pilota ha sortit per la porteria dreta		*/
-void *moure_pilota(void *cap)
-{
+void *moure_pilota(void *cap) {
   int f_h, c_h;
   char rh, rv, rd, pd;
 
-  do
-  {
+  do {
     win_retard(retard);
 
-    if (space_press)
+    if (*p_space_press)
       pthread_mutex_lock(&mutex_glob);
 
     f_h = pil_pf + pil_vf; /* posicio hipotetica de la pilota */
     c_h = pil_pc + pil_vc;
-    cont = -1; /* inicialment suposem que la pilota no surt */
+    *p_continuar = -1; /* inicialment suposem que la pilota no surt */
     rh = rv = rd = pd = ' ';
-    if ((f_h != ipil_pf) || (c_h != ipil_pc))
-    {
+    if ((f_h != ipil_pf) || (c_h != ipil_pc)) {
       /* si posicio hipotetica no coincideix amb la pos. actual */
       if (f_h != ipil_pf) /* provar rebot vertical */
       {
@@ -344,8 +313,8 @@ void *moure_pilota(void *cap)
       }
 
       pthread_mutex_lock(&mutex_screen);
-      if (win_quincar(f_h, c_h) == ' ')              /* verificar posicio definitiva */
-      {                                              /* si no hi ha obstacle */
+      if (win_quincar(f_h, c_h) == ' ') /* verificar posicio definitiva */
+      {                                 /* si no hi ha obstacle */
         win_escricar(ipil_pf, ipil_pc, ' ', NO_INV); /* esborra pilota */
         pthread_mutex_unlock(&mutex_screen);
 
@@ -354,77 +323,67 @@ void *moure_pilota(void *cap)
         ipil_pf = f_h;
         ipil_pc = c_h; /* actualitza posicio actual */
 
-        if ((ipil_pc > 0) && (ipil_pc <= n_col))
-        {
+        if ((ipil_pc > 0) && (ipil_pc <= n_col)) {
           pthread_mutex_lock(&mutex_screen);
           win_escricar(ipil_pf, ipil_pc, '.', INVERS); /* imprimeix pilota */
           pthread_mutex_unlock(&mutex_screen);
         } /* si no surt */
-        else
-        {
-          pthread_mutex_lock(&mutex_conti);
-          cont = ipil_pc; /* codi de finalitzacio de partida */
-          pthread_mutex_unlock(&mutex_conti);
+        else {
+          pthread_mutex_lock(&mutex_con);
+          *p_continuar = ipil_pc; /* codi de finalitzacio de partida */
+          pthread_mutex_unlock(&mutex_con);
         }
-      }
-      else
-      {
+      } else {
         pthread_mutex_unlock(&mutex_screen);
       }
-    }
-    else
-    {
+    } else {
       pil_pf += pil_vf;
       pil_pc += pil_vc;
     }
 
-    if(tec == TEC_ESPAI && !space_press)
+    if (*p_tec == TEC_ESPAI && !*p_space_press)
       pthread_mutex_unlock(&mutex_glob);
-  } while ((tec != TEC_RETURN) && (cont == -1) && ((*p_moviments > 0) || *p_moviments == -1));
+  } while ((*p_tec != TEC_RETURN) && (*p_continuar == -1) &&
+           ((*p_moviments > 0) || *p_moviments == -1));
 
   return ((void *)(intptr_t)0);
 }
 
 /* funcio per moure la paleta de l'usuari en funcio de la tecla premuda */
-void *mou_paleta_usuari(void *cap)
-{
-  do
-  {
+void *mou_paleta_usuari(void *cap) {
+  do {
     win_retard(retard);
 
-    if (space_press)
+    if (*p_space_press)
       pthread_mutex_lock(&mutex_glob);
 
-    if (tec != 0)
-    {
+    if (*p_tec != 0) {
       pthread_mutex_lock(&mutex_screen);
-      if ((tec == TEC_AVALL) && (win_quincar(ipu_pf + l_pal, ipu_pc) == ' '))
-      {
+      if ((*p_tec == TEC_AVALL) &&
+          (win_quincar(ipu_pf + l_pal, ipu_pc) == ' ')) {
         win_escricar(ipu_pf, ipu_pc, ' ', NO_INV); /* esborra primer bloc */
         pthread_mutex_unlock(&mutex_screen);
 
         ipu_pf++; /* actualitza posicio */
 
         pthread_mutex_lock(&mutex_screen);
-        win_escricar(ipu_pf + l_pal - 1, ipu_pc, '0', INVERS); /* impri. ultim bloc */
+        win_escricar(ipu_pf + l_pal - 1, ipu_pc, '0',
+                     INVERS); /* impri. ultim bloc */
         pthread_mutex_unlock(&mutex_screen);
 
-        if (*p_moviments > 0)
-        {
+        if (*p_moviments > 0) {
           pthread_mutex_lock(&mutex_mov);
-          *p_moviments--; // he fet un moviment de la paleta
+          (*p_moviments)--; // he fet un moviment de la paleta
           pthread_mutex_unlock(&mutex_mov);
         }
-      }
-      else
-      {
+      } else {
         pthread_mutex_unlock(&mutex_screen);
       }
 
       pthread_mutex_lock(&mutex_screen);
-      if ((tec == TEC_AMUNT) && (win_quincar(ipu_pf - 1, ipu_pc) == ' '))
-      {
-        win_escricar(ipu_pf + l_pal - 1, ipu_pc, ' ', NO_INV); /* esborra ultim bloc */
+      if ((*p_tec == TEC_AMUNT) && (win_quincar(ipu_pf - 1, ipu_pc) == ' ')) {
+        win_escricar(ipu_pf + l_pal - 1, ipu_pc, ' ',
+                     NO_INV); /* esborra ultim bloc */
         pthread_mutex_unlock(&mutex_screen);
 
         ipu_pf--;
@@ -433,74 +392,81 @@ void *mou_paleta_usuari(void *cap)
         win_escricar(ipu_pf, ipu_pc, '0', INVERS); /* imprimeix primer bloc */
         pthread_mutex_unlock(&mutex_screen);
 
-        if (*p_moviments > 0)
-        {
+        if (*p_moviments > 0) {
           pthread_mutex_lock(&mutex_mov);
-          *p_moviments--; // he fet un moviment de la paleta
+          (*p_moviments)--; // he fet un moviment de la paleta
           pthread_mutex_unlock(&mutex_mov);
         }
-      }
-      else
-      {
+      } else {
         pthread_mutex_unlock(&mutex_screen);
       }
     }
 
-    if(tec == TEC_ESPAI && !space_press)
+    if (*p_tec == TEC_ESPAI && !*p_space_press)
       pthread_mutex_unlock(&mutex_glob);
-  } while ((tec != TEC_RETURN) && cont == -1 && ((*p_moviments > 0) || *p_moviments == -1));
+  } while ((*p_tec != TEC_RETURN) && *p_continuar == -1 &&
+           ((*p_moviments > 0) || *p_moviments == -1));
 
   return ((void *)(intptr_t)0);
 }
 
-
-void *read_key(void *arg)
-{
+void *read_key(void *arg) {
   do {
     win_retard(retard);
 
     pthread_mutex_lock(&mutex_tec);
-    tec = win_gettec();
+    *p_tec = win_gettec();
     pthread_mutex_unlock(&mutex_tec);
 
-
-    if (tec == TEC_ESPAI)
-    {
+    if (*p_tec == TEC_ESPAI) {
       pthread_mutex_lock(&mutex_space);
-      space_press = (space_press + 1) % 2;
+      *p_space_press = (*p_space_press + 1) % 2;
       pthread_mutex_unlock(&mutex_space);
 
-      if(!space_press) {
+      if (!*p_space_press) {
         pthread_mutex_unlock(&mutex_glob);
       }
     }
-  } while((tec != TEC_RETURN) && cont == -1 && ((*p_moviments > 0) || *p_moviments == -1));
+  } while ((*p_tec != TEC_RETURN) && *p_continuar == -1 &&
+           ((*p_moviments > 0) || *p_moviments == -1));
 
   return ((void *)(intptr_t)0);
 }
 
-/* programa principal				    */
-int main(int n_args, const char *ll_args[])
-{
-  int n_thr = 0, n = 0;
-  char retard_string[20], moviment_id_string[20], continuar_id_string[20], tec_id_string[20];
-
-  if ((n_args != 3) && (n_args != 4))
-  {
-    fprintf(stderr, "Comanda: tennis2 fit_param moviments [retard]\n");
-    exit(1);
-  }
-  carrega_parametres(ll_args[1]);
-
+void init_shared_vars() {
   id_moviments = ini_mem(sizeof(int));
   p_moviments = map_mem(id_moviments);
-  *p_moviments = atoi(ll_args[2]);
-  sprintf(moviment_id_string, "%d", id_moviments);
 
   id_continuar = ini_mem(sizeof(int));
   p_continuar = map_mem(id_continuar);
+
+  id_tec = ini_mem(sizeof(int));
+  p_tec = map_mem(id_tec);
+
+  id_space_press = ini_mem(sizeof(int));
+  p_space_press = map_mem(id_space_press);
+}
+
+/* programa principal				    */
+int main(int n_args, const char *ll_args[]) {
+  int n_thr = 0, n = 0;
+  char id_win_str[20], win_rows_str[20], win_cols_str[20], ipo_pf_str[20],
+      ipo_pc_str[20], v_pal_str[20], pal_ret_str[20], po_pf_str[20],
+      retard_str[20], id_moviment_str[20], id_continuar_str[20], id_tec_str[20],
+      id_space_press_str[20], l_pal_str[20];
+
+  if ((n_args != 3) && (n_args != 4)) {
+    fprintf(stderr, "Comanda: tennis3 fit_param moviments [retard]\n");
+    exit(1);
+  }
+
+  init_shared_vars();
+  carrega_parametres(ll_args[1]);
+
+  *p_moviments = atoi(ll_args[2]);
   *p_continuar = -1;
-  sprintf(continuar_id_string, "%d", id_continuar);
+
+  id_tec = ini_mem(sizeof(int));
 
   if (*p_moviments == 0)
     *p_moviments = -1;
@@ -517,8 +483,8 @@ int main(int n_args, const char *ll_args[])
   pthread_mutex_init(&mutex_space, NULL);
   pthread_mutex_init(&mutex_mov, NULL);
   pthread_mutex_init(&mutex_tec, NULL);
-  pthread_mutex_init(&mutex_conti, NULL);
-  //pthread_mutex_init(&mutex_glob, NULL);
+  pthread_mutex_init(&mutex_con, NULL);
+  pthread_mutex_init(&mutex_glob, NULL);
 
   if (pthread_create(&tid[n_thr], NULL, read_key, NULL) == 0)
     n_thr++;
@@ -529,30 +495,41 @@ int main(int n_args, const char *ll_args[])
   if (pthread_create(&tid[n_thr], NULL, mou_paleta_usuari, NULL) == 0)
     n_thr++;
 
-  sprintf(retard_string, "%d", retard);
+  sprintf(id_win_str, "%d", id_win);
+  sprintf(win_rows_str, "%d", n_fil);
+  sprintf(win_cols_str, "%d", n_col);
+  sprintf(l_pal_str, "%d", l_pal);
+  sprintf(id_moviment_str, "%d", id_moviments);
+  sprintf(id_tec_str, "%d", id_tec);
+  sprintf(id_continuar_str, "%d", id_continuar);
+  sprintf(id_space_press_str, "%d", id_space_press);
+  sprintf(retard_str, "%d", retard);
 
-  
+  for (int i = 0; i < n_po; i++) {
+    sprintf(ipo_pf_str, "%d", ipo_pf[i]);
+    sprintf(ipo_pc_str, "%d", ipo_pc[i]);
+    sprintf(v_pal_str, "%f", v_pal[i]);
+    sprintf(pal_ret_str, "%f", pal_ret[i]);
+    sprintf(po_pf_str, "%f", po_pf[i]);
 
-
-
-
-
-  for (int i = 0; i < n_po; i++)
-  {
-    tpid[n] = fork();         // Guardem la id dels processos creats a l'array tpid[]
-
-    if (tpid[n] == (pid_t) 0){
-      execlp("./pal_ord3", "pal_ord3", array1, array2, array3, array4, retard_string, moviment_id_string);
+    tpid[n] = fork(); // Guardem la id dels processos creats a l'array tpid[]
+    if (tpid[n] == (pid_t)0) {
+      execlp("./pal_ord3", "pal_ord3", id_win_str, win_rows_str, win_cols_str,
+             ipo_pf_str, ipo_pc_str, v_pal_str, pal_ret_str, po_pf_str,
+             retard_str, id_moviment_str, id_continuar_str, id_tec_str,
+             id_space_press_str, l_pal_str, (char *)0);
+      fprintf(stderr, "No s'ha pogut executar el programa pal_ord3\n");
+      exit(1);
+    } else if (tpid[n] > (pid_t)0) {
+      n++;
     }
   }
-  
-  
 
+  //char time[6], minutes = 0, seconds = 0;
+  do {
 
-  char time[6], minutes = 0, seconds = 0;
-  do
-  {
-    sprintf(time, "%02u:%02u", minutes, seconds);
+    // pendent de fer el clock 
+    /*sprintf(time, "%02u:%02u", minutes, seconds);
 
     pthread_mutex_lock(&mutex_screen);
     win_escristr(time);
@@ -562,15 +539,18 @@ int main(int n_args, const char *ll_args[])
 
     seconds++;
 
-    if (seconds >= 60)
-    {
+    if (seconds >= 60) {
       seconds = 0;
       minutes++;
-    }
-  } while ((tec != TEC_RETURN) && cont == -1 && ((*p_moviments > 0) || *p_moviments == -1));
+    }*/
 
-  for (int i = 0; i < n_thr; i++)
-  {
+    win_update();
+    win_retard(50);
+    
+  } while ((*p_tec != TEC_RETURN) && *p_continuar == -1 &&
+           ((*p_moviments > 0) || *p_moviments == -1));
+
+  for (int i = 0; i < n_thr; i++) {
     pthread_join(tid[i], NULL);
   }
 
@@ -578,19 +558,30 @@ int main(int n_args, const char *ll_args[])
   pthread_mutex_destroy(&mutex_space);
   pthread_mutex_destroy(&mutex_mov);
   pthread_mutex_destroy(&mutex_tec);
-  pthread_mutex_destroy(&mutex_conti);
-  //pthread_mutex_destroy(&mutex_glob);
+  pthread_mutex_destroy(&mutex_con);
+  pthread_mutex_destroy(&mutex_glob);
+
+  // Espera que tots els processos acabin
+  for (int i = 0; i < n; i++) {
+    waitpid(tpid[i], NULL, 0);
+  }
 
   win_fi();
 
-  if (tec == TEC_RETURN)
+  if (*p_tec == TEC_RETURN)
     printf("S'ha aturat el joc amb la tecla RETURN!\n");
-  else
-  {
-    if (cont == 0 || *p_moviments == 0)
+  else {
+    if (*p_continuar == 0 || *p_moviments == 0)
       printf("Ha guanyat l'ordinador!\n");
     else
       printf("Ha guanyat l'usuari!\n");
   }
+
+  elim_mem(id_win);
+  elim_mem(id_tec);
+  elim_mem(id_continuar);
+  elim_mem(id_moviments);
+  elim_mem(id_space_press);
+
   return (0);
 }
