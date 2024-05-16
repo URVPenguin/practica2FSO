@@ -344,7 +344,7 @@ void *mou_paleta_ordinador(void *index)
   int f_h;
   /* char rh,rv,rd; */
 
-  int i = *((int *)index);
+  int i = (intptr_t)index;
 
   do
   {
@@ -417,8 +417,7 @@ int main(int n_args, const char *ll_args[])
 
   for (int i = 0; i < n_po; i++)
   {
-    int num = i;
-    if (pthread_create(&tid[n_thr], NULL, mou_paleta_ordinador, &num) == 0)
+    if (pthread_create(&tid[n_thr], NULL, mou_paleta_ordinador, (void *)(intptr_t)i) == 0)
       n_thr++;
   }
 
