@@ -24,8 +24,8 @@ tennis1 : tennis1.c winsuport.o winsuport.h
 tennis2 : tennis2.c winsuport.o winsuport.h
 	gcc tennis2.c winsuport.o -o tennis2 -lcurses -lpthread
 
-tennis3 : tennis3.c winsuport2.o memoria.o semafor.o missatge.o
-	gcc -Wall tennis3.c winsuport2.o memoria.o semafor.o missatge.o -o tennis3 -lcurses -lpthread
+tennis3 : tennis3.c winsuport2.o memoria.o
+	gcc -Wall tennis3.c winsuport2.o memoria.o -o tennis3 -lcurses -lpthread
 	gcc pal_ord3.c winsuport2.o memoria.o -o pal_ord3 -lcurses
 
 clean: 
