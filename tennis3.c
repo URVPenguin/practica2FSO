@@ -63,6 +63,7 @@
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <signal.h>
 
 #define MIN_FIL 7 /* definir limits de variables globals */
 #define MAX_FIL 25
@@ -477,6 +478,10 @@ int main(int n_args, const char *ll_args[]) {
 
   for (int i = 0; i < n_thr; i++) {
     pthread_join(tid[i], NULL);
+  }
+
+  for (int i = 0; i < n; i++) {
+    kill(tpid[i], SIGTERM);
   }
 
   // Espera que tots els processos acabin

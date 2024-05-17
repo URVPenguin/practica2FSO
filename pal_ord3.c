@@ -80,7 +80,6 @@ int main(int num_args, char *args[]) {
     } else
       po_pf += v_pal; /* actualitza posicio vertical real de la paleta */
 
-    fprintf(stderr,"%d", *p_moviments);
 
   } while ((*p_tec != TEC_RETURN) && *p_continuar == -1 &&
            ((*p_moviments > 0) || *p_moviments == -1));
