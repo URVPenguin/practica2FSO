@@ -1,25 +1,6 @@
 /*
 Programa per controlar la paleta de l'ordinador mitjançant un proces fill
-Els arguments son:
 
--------------------------------
-./pal_ord3  -> [0]             |
-array1 -> [1]                  |
-array2 -> [2]                  |
-array3 -> [3]                  |
-array4 -> [4]                  |
-retard_string -> [5]           |
-moviment_id_string -> [6]      |
-continuar_id_string -> [7]     |
-n_po -> [8]                       |
--------------------------------
-
-array1, array2, array3, array4 -> id_ipo_pf, id_ipo_pc, id_v_pal, id_pal_ret
-
-retard_string, moviment_id_string, continuar_id_string -> id de la memoria
-compartida
-
-n -> index de la paleta
 */
 
 #include "memoria.h"
@@ -38,8 +19,7 @@ int main(int num_args, char *args[]) {
   float v_pal, pal_ret, po_pf;
 
   if (num_args < 14) {
-    fprintf(stderr, "proces: pal_ord3 array1 array2 array 3 array4 "
-                    "retard_string moviment_id_string continuar_id_string n");
+    fprintf(stderr, "proces: id_win_str win_rows_str win_cols_str ipo_pf_str ipo_pc_str, v_pal_str pal_ret_str po_pf_str retard_str id_moviment_str id_continuar_str id_tec_str l_pal_str");
     exit(1);
   }
 
@@ -80,7 +60,7 @@ int main(int num_args, char *args[]) {
           win_escricar(ipo_pf + l_pal - 1, ipo_pc, '1',
                        INVERS); /* impr. ultim bloc */
           if (*p_moviments > 0)
-            *(p_moviments)--; /* he fet un moviment de la paleta */
+            (*p_moviments)--; /* he fet un moviment de la paleta */
         } else /* si hi ha obstacle, canvia el sentit del moviment */
           v_pal = -v_pal;
       } else /* verificar moviment cap amunt */
@@ -93,12 +73,14 @@ int main(int num_args, char *args[]) {
           ipo_pf = po_pf;                            /* actualitza posicio */
           win_escricar(ipo_pf, ipo_pc, '1', INVERS); /* impr. primer bloc */
           if (*p_moviments > 0)
-            *(p_moviments)--; /* he fet un moviment de la paleta */
+            (*p_moviments)--; /* he fet un moviment de la paleta */
         } else /* si hi ha obstacle, canvia el sentit del moviment */
           v_pal = -v_pal;
       }
     } else
       po_pf += v_pal; /* actualitza posicio vertical real de la paleta */
+
+    fprintf(stderr,"%d", *p_moviments);
 
   } while ((*p_tec != TEC_RETURN) && *p_continuar == -1 &&
            ((*p_moviments > 0) || *p_moviments == -1));
