@@ -13,7 +13,7 @@
 #include <stdio.h>
 #include <signal.h>
 #include <curses.h>
-#include "winsuport.h"
+#include "../include/winsuport.h"
 
 
 WINDOW* win;                /* finestra d'acces al terminal */

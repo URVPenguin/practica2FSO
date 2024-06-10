@@ -3,6 +3,11 @@
         "chrono": "c",
         "variant": "c",
         "cstdint": "c",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "stdio.h": "c",
+        "types.h": "c",
+        "memoria.h": "c",
+        "winsuport.h": "c",
+        "semafor.h": "c"
     }
 }

@@ -1,32 +1,37 @@
-all : winsuport.o winsuport2.o missatge.o semafor.o memoria.o tennis0 tennis1 tennis2 tennis3
+all : build/winsuport.o build/winsuport2.o build/missatge.o build/semafor.o build/memoria.o tennis0 tennis1 tennis2 tennis3
 
-winsuport.o : winsuport.c winsuport.h
-	gcc -Wall -c winsuport.c -o winsuport.o
+dirs:
+	@mkdir -p bin 2> /dev/null 
+	@mkdir -p build 2> /dev/null
 
-winsuport2.o : winsuport2.c winsuport2.h
-	gcc -Wall -c winsuport2.c -o winsuport2.o
+build/winsuport.o : src/winsuport.c include/winsuport.h dirs
+	gcc -Wall -c src/winsuport.c -o build/winsuport.o
 
-memoria.o : memoria.c memoria.h
-	gcc -c -Wall memoria.c -o memoria.o 
+build/winsuport2.o : src/winsuport2.c include/winsuport2.h dirs
+	gcc -Wall -c src/winsuport2.c -o build/winsuport2.o
 
-semafor.o : semafor.c semafor.h
-	gcc -c -Wall semafor.c -o semafor.o 
+build/memoria.o : src/memoria.c include/memoria.h dirs
+	gcc -c -Wall src/memoria.c -o build/memoria.o 
 
-missatge.o : missatge.c missatge.h
-	gcc -c -Wall missatge.c -o missatge.o
+build/semafor.o : src/semafor.c include/semafor.h dirs
+	gcc -c -Wall src/semafor.c -o build/semafor.o 
 
-tennis0 : tennis0.c winsuport.o winsuport.h
-	gcc -Wall tennis0.c winsuport.o -o tennis0 -lcurses
+build/missatge.o : src/missatge.c include/missatge.h dirs
+	gcc -c -Wall src/missatge.c -o build/missatge.o
 
-tennis1 : tennis1.c winsuport.o winsuport.h
-	gcc -Wall tennis1.c winsuport.o -o tennis1 -lcurses -lpthread
+tennis0 : src/tennis0.c build/winsuport.o include/winsuport.h dirs
+	gcc -Wall src/tennis0.c build/winsuport.o -o bin/tennis0 -lcurses
 
-tennis2 : tennis2.c winsuport.o winsuport.h
-	gcc tennis2.c winsuport.o -o tennis2 -lcurses -lpthread
+tennis1 : src/tennis1.c build/winsuport.o include/winsuport.h dirs
+	gcc -Wall src/tennis1.c build/winsuport.o -o bin/tennis1 -lcurses -lpthread
 
-tennis3 : tennis3.c winsuport2.o memoria.o
-	gcc -Wall tennis3.c winsuport2.o memoria.o -o tennis3 -lcurses -lpthread
-	gcc pal_ord3.c winsuport2.o memoria.o -o pal_ord3 -lcurses
+tennis2 : src/tennis2.c build/winsuport.o include/winsuport.h dirs
+	gcc -Wall src/tennis2.c build/winsuport.o -o bin/tennis2 -lcurses -lpthread
 
-clean: 
-	rm winsuport.o missatge.o memoria.o semafor.o winsuport2.o tennis0 tennis1 tennis2 tennis3
+tennis3 : src/tennis3.c build/winsuport2.o build/memoria.o build/semafor.o dirs
+	gcc -Wall src/tennis3.c build/winsuport2.o build/semafor.o build/memoria.o -o bin/tennis3 -lcurses -lpthread
+	gcc -Wall src/pal_ord3.c build/winsuport2.o build/semafor.o build/memoria.o -o bin/pal_ord3 -lcurses
+
+clean: dirs
+	rm bin/*
+	rm build/*

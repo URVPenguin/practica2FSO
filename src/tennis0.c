@@ -58,7 +58,7 @@
 
 #include <stdio.h>		/* incloure definicions de funcions estandard */
 #include <stdlib.h>
-#include "winsuport.h"		/* incloure definicions de funcions propies */
+#include "../include/winsuport.h"		/* incloure definicions de funcions propies */
 
 #define MIN_FIL 7		/* definir limits de variables globals */
 #define MAX_FIL 25
